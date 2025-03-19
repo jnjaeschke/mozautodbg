@@ -1,0 +1,6 @@
+mozautodbg/_version.py
+build
+dist
+*.egg-info
+.venv
+*.pyc

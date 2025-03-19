@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=42", "wheel", "setuptools_scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mozautodbg"
+description = "Automatically disable optimizations in changed directories for Gecko builds"
+readme = "README.md"
+authors = [{"email"= "jjaschke@mozilla.com"}]
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+  "Click",
+  "questionary"
+]
+# We use setuptools_scm to generate the version from git tags.
+dynamic = ["version"]
+
+[project.scripts]
+mozautodbg = "mozautodbg.cli:cli"
+
+[tool.setuptools_scm]
+write_to = "mozautodbg/_version.py"
