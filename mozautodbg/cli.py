@@ -119,7 +119,12 @@ def mach(
         return
 
     ret: int = build_hook.execute_mach(
-        mozconfig, base, show_hook, list(include), list(ignore), list(mach_args)
+        mozconfig or config_mod.get_config()["DEFAULT"]["mozconfig"],
+        base,
+        show_hook,
+        list(include) or config_mod.get_config()["DEFAULT"]["include"],
+        list(ignore) or config_mod.get_config()["DEFAULT"]["ignore"],
+        list(mach_args),
     )
     sys.exit(ret)
 
