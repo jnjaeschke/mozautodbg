@@ -1,6 +1,6 @@
 """Build hook helpers for mozautodbg."""
 
-from os import environ
+import os
 
 import subprocess
 import sys
@@ -8,7 +8,8 @@ import tempfile
 from pathlib import Path
 from typing import Generator, List
 from contextlib import contextmanager
-
+import re
+from typing import Optional
 import logging
 
 
@@ -125,11 +126,53 @@ def write_build_hook(directories: List[str]) -> Generator[str, None, None]:
         "        COMPILE_FLAGS['OPTIMIZE'] = []",
     ]
     hook_content = "\n".join(hook_lines) + "\n"
-    with tempfile.NamedTemporaryFile(
-        suffix=".py", mode="w", encoding="utf-8"
-    ) as temp_file:
-        temp_file.write(hook_content)
-        yield temp_file.name
+
+    objdir = extract_moz_objdir(os.environ["MOZCONFIG"])
+    if objdir is not None:
+        hook_filename = (Path(objdir) / ".build_hook").resolve()
+        logging.info("Using hook file %s", hook_filename)
+        if not hook_filename.exists():
+            hook_filename.touch()
+        old_hook_content = hook_filename.read_text()
+        if old_hook_content != hook_content:
+            logging.info("Hook file has changes. Overwriting.")
+            with open(hook_filename, "w") as f:
+                f.write(hook_content)
+        else:
+            logging.info("Using the existing hook file")
+        yield str(hook_filename)
+    else:
+        with tempfile.NamedTemporaryFile(
+            suffix=".py", mode="w", encoding="utf-8"
+        ) as temp_file:
+            logging.info("Could not determine objdir. Using temp file.")
+            temp_file.write(hook_content)
+            yield temp_file.name
+
+
+def extract_moz_objdir(file_path: str) -> Optional[str]:
+    """
+    Open the file at `file_path` and search for a line that begins with
+    "mk_add_options MOZ_OBJDIR=" (at the start of the line). The function
+    extracts and returns the value after the '='. If no such line is found,
+    returns None.
+
+    Example line:
+      mk_add_options MOZ_OBJDIR=/path/to/objdir
+
+    """
+    # The regex ensures that the line starts with "mk_add_options" followed by whitespace,
+    # then "MOZ_OBJDIR=" and then captures the rest of the line.
+    pattern = re.compile(r"^mk_add_options\s+MOZ_OBJDIR=(.+)$")
+
+    with open(file_path, "r") as f:
+        for line in f:
+            line = line.strip()
+            match = pattern.match(line)
+            if match:
+                # Extract and return the value (stripping any extra whitespace)
+                return match.group(1).strip().replace("@TOPSRCDIR@", os.curdir)
+    return None
 
 
 def execute_mach(
@@ -170,6 +213,12 @@ def execute_mach(
     )
     logging.debug("Final directories for hook: %s", final_dirs)
 
+    if mozconfig:
+        os.environ["MOZCONFIG"] = mozconfig
+        logging.info("Using MOZCONFIG: %s", mozconfig)
+    else:
+        logging.info("No MOZCONFIG override provided.")
+
     with write_build_hook(final_dirs) as hook_path:
         if show_hook:
             hook_content: str = Path(hook_path).read_text()
@@ -177,16 +226,10 @@ def execute_mach(
             logging.getLogger().setLevel(logging.INFO)
             logging.info("Generated hook content:\n%s", hook_content)
             logging.getLogger().setLevel(loglevel)
+            os.environ["MOZ_BUILD_HOOK"] = hook_path
 
         if len(mach_args) == 0:
             return 0
-
-        environ["MOZ_BUILD_HOOK"] = hook_path
-        if mozconfig:
-            environ["MOZCONFIG"] = mozconfig
-            logging.info("Using MOZCONFIG: %s", mozconfig)
-        else:
-            logging.info("No MOZCONFIG override provided.")
 
         mach_cmd: List[str] = ["./mach"] + mach_args
         logging.info("Executing command: %s", " ".join(mach_cmd))
